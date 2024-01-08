@@ -129,7 +129,7 @@ def train_vae(params, device):
                     plt.imshow(make_grid(rec_img, nrow=32).permute((1, 2, 0)))
                     plt.title("Conditional, p(z|x) samples at [epoch %03d]" 
                               %(epoch))
-                    plt.savefig('./results/figures/epoch_'+str(epoch)+'.png')
+                    plt.savefig('./results/epoch_'+str(epoch)+'.png')
                     break
 
 

@@ -81,8 +81,15 @@ class BernoulliLikelihood(nn.Module):
                               self.decoder.height)
         
 
-    def forward(self, z: torch.Tensor)->td:
-
+    def ind(self, z: torch.Tensor)->td.distribution.Distribution:
+        h = self.decoder(z)
+        # identify each z sample with a single logit (per pixel per channel) 
+        h = torch.einsum('ijknijk->nijk', h)
+        return td.Independent(\
+            td.Bernoulli(logits=h), \
+            len(self.outcome_shape))
+    
+    def forward(self, z: torch.Tensor)->td.distribution.Distribution:
         h = self.decoder(z)
         return td.Independent(\
             td.Bernoulli(logits=h), \
@@ -148,6 +155,7 @@ class MoGVAE(nn.Module):
         self.prior = prior
         self.likelihood = likelihood
         self.guide = guide
+        self.device = device
         self.to(device)
 
     def reconstruct_img(self, x: torch.Tensor)->torch.Tensor:
@@ -186,10 +194,10 @@ class MoGVAE(nn.Module):
 
         for _ in range(sample_size):
 
-            # Obtain a sample
-            z = qz.sample()
-
-            px_z = self.likelihood(z)
+            # Obtain a sample (independent per pixel per channel)
+            z = qz.sample(sample_shape=outcome_shape)
+            # use the independent z per pixel per channel likelihood
+            px_z = self.likelihood.ind(z)
 
             # Compute all three relevant densities:
             # p(x|z)
@@ -213,4 +221,4 @@ class MoGVAE(nn.Module):
         elbo = expected_loglikelihood - kl_q_p
 
         loss = -elbo
-        return loss.mean(0)
+        return loss

@@ -40,7 +40,7 @@ class MoGPrior(nn.Module):
             requires_grad=True)
         self.num_components = num_components
 
-    def forward(self, batch_shape: torch.Size) -> td:
+    def forward(self, batch_shape: torch.Size) -> td.distribution.Distribution:
 
         shape = batch_shape + \
                 (self.num_components,) + \
@@ -113,7 +113,7 @@ class Guide(nn.Module):
         self.encoder = Encoder(z_dim=z_dim,
                                hidden_dim=hidden_dim)
 
-    def forward(self, x: torch.Tensor)->td:
+    def forward(self, x: torch.Tensor)->td.Distribution:
         lambda_mu, lambda_sigma = self.encoder(x)
         return td.Independent(\
             td.Normal(loc=lambda_mu, \
@@ -163,7 +163,7 @@ class MoGVAE(nn.Module):
         px_z = self.likelihood(qz.sample())
         return px_z.sample()
 
-    def forward(self, x: torch.Tensor, sample_size: int=None)->torch.Tensor:
+    def forward(self, x: torch.Tensor, sample_size: int=1)->torch.Tensor:
         """
         Args:
             x: batch of images
@@ -173,16 +173,16 @@ class MoGVAE(nn.Module):
         Returns:
             ELBO loss
         """
-        sample_size = sample_size or 1
-        obs_dims = len(self.likelihood.outcome_shape)
+        outcome_shape = self.likelihood.outcome_shape
+        obs_dims = len(outcome_shape)
         batch_shape = x.shape[:-obs_dims]
 
         qz = self.guide(x)
         pz = self.prior(batch_shape)
 
-        log_p_x_z = 0.
-        log_p_z = 0.
-        log_q_z_x = 0.
+        log_p_x_z = torch.zeros(1, device=self.device)
+        log_p_z = torch.zeros(1, device=self.device)
+        log_q_z_x = torch.zeros(1, device=self.device)
 
         for _ in range(sample_size):
 
@@ -193,11 +193,11 @@ class MoGVAE(nn.Module):
 
             # Compute all three relevant densities:
             # p(x|z)
-            log_p_x_z = log_p_x_z + px_z.log_prob(x)
+            log_p_x_z += torch.mean(px_z.log_prob(x))
             # q(z|x,lambda)
-            log_q_z_x = log_q_z_x + qz.log_prob(z)
+            log_q_z_x += torch.mean(qz.log_prob(z))
             # p(z)
-            log_p_z = log_p_z + pz.log_prob(z)
+            log_p_z += torch.mean(pz.log_prob(z))
 
         # Compute the sample mean for the different terms
         log_p_x_z = log_p_x_z / sample_size
@@ -206,7 +206,7 @@ class MoGVAE(nn.Module):
 
         expected_loglikelihood = log_p_x_z
         try:  # not every design admits tractable KL
-            kl_q_p = td.kl_divergence(qz, pz)
+            kl_q_p = td.kl.kl_divergence(qz, pz)
         except NotImplementedError:
             kl_q_p = log_q_z_x - log_p_z
 
